@@ -88,7 +88,7 @@ public class XLSX2CSV {
      private void outputMissingRows(int number) {
          for (int i=0; i<number; i++) {
              for (int j=0; j<minColumns; j++) {
-                 output.append("\\001");
+                 output.append(divStr);
              }
              output.append('\n');
          }
@@ -108,7 +108,7 @@ public class XLSX2CSV {
      public void endRow(int rowNum) {
          // Ensure the minimum number of columns
          for (int i=currentCol; i<minColumns; i++) {
-             output.append("\\001");
+             output.append(divStr);
          }
          output.append('\n');
      }
@@ -119,7 +119,7 @@ public class XLSX2CSV {
          if (firstCellOfRow) {
              firstCellOfRow = false;
          } else {
-             output.append("\\001");
+             output.append(divStr);
          }
 
          // gracefully handle missing CellRef here in a similar way as XSSFCell does
@@ -131,7 +131,7 @@ public class XLSX2CSV {
          int thisCol = (new CellReference(cellReference)).getCol();
          int missedCols = thisCol - currentCol - 1;
          for (int i=0; i<missedCols; i++) {
-             output.append("\\001");
+             output.append(divStr);
          }
          currentCol = thisCol;
          // Number or string?
@@ -168,12 +168,15 @@ public class XLSX2CSV {
   */
  private PrintStream output;
 
- 
+
  private int startColumn;
  
  private int startRow;
  
- private String divStr;
+ private String divStr = "\001";
+ 
+ 
+ 
  /**
   * Creates a new XLSX -> CSV converter
   *
@@ -181,9 +184,9 @@ public class XLSX2CSV {
   * @param output     The PrintStream to output the CSV to
   * @param minColumns The minimum number of columns to output, or -1 for no minimum
   */
- public XLSX2CSV(OPCPackage pkg, PrintStream output, int minColumns) {
+ public XLSX2CSV(OPCPackage pkg, String divide, int minColumns) {
      this.xlsxPackage = pkg;
-     this.output = output;
+     this.divStr = divide;
      this.minColumns = minColumns;
  }
 
@@ -205,7 +208,13 @@ public class XLSX2CSV {
          ReadOnlySharedStringsTable strings,
          SheetContentsHandler sheetHandler, 
          InputStream sheetInputStream) throws IOException, SAXException {
-     DataFormatter formatter = new DataFormatter();
+     DataFormatter formatter = new DataFormatter() {
+         @Override
+         public String formatRawCellContents(double value, int formatIndex, String formatString, boolean use1904Windowing) {
+             if ("m/d/yy".equals(formatString)) formatString = "yyyy-mm-dd";
+             return super.formatRawCellContents(value, formatIndex, formatString, use1904Windowing);
+         }
+     };
      InputSource sheetSource = new InputSource(sheetInputStream);
      try {
          XMLReader sheetParser = SAXHelper.newXMLReader();
@@ -234,45 +243,44 @@ public class XLSX2CSV {
     // int index = 0;
      while (iter.hasNext()) {
          try (InputStream stream = iter.next()) {
-        	BufferedReader reader = new BufferedReader(
-        			    new InputStreamReader(stream));
-        	reader.readLine();
-        	InputStream stream2 = new ReaderInputStream(reader);
 //        		String sheetName = iter.getSheetName();
 //          	this.output.println();
 //          	this.output.println(sheetName + " [index=" + index + "]:");
-        	processSheet(styles, strings, new SheetToCSV(), stream2);
+        	processSheet(styles, strings, new SheetToCSV(), stream);
          }
         // ++index;
      }
  }
 
  public static void main(String[] args) throws Exception {
-//     if (args.length < 1) {
-//         System.err.println("Use:");
-//         System.err.println("  XLSX2CSV <xlsx file> [min columns]");
-//         return;
-//     }
+     if (args.length < 1) {
+         System.err.println("Use:");
+         System.err.println(" java -jar XLSX2CSV.jar  <\"xlsx file path\">  <\"output file path\"> [\"divide string\"] [min columns]");
+         return;
+     }
  	//输入文件地址
-     File xlsxFile = new File("D:\\Test.xlsx");
+     File xlsxFile = new File(args[0]);
      if (!xlsxFile.exists()) {
          System.err.println("Not found or not a file: " + xlsxFile.getPath());
          return;
      }
 
      int minColumns = -1;
-     if (args.length >= 2)
-         minColumns = Integer.parseInt(args[1]);
-
+     if (args.length >= 4)
+         minColumns = Integer.parseInt(args[3]);
+     
+     String divStr = "\001";
+     if (args.length >= 3)
+         divStr = args[2];
      // The package open is instantaneous, as it should be.
      try (OPCPackage p = OPCPackage.open(xlsxFile.getPath(), PackageAccess.READ)) {
-         XLSX2CSV xlsx2csv = new XLSX2CSV(p, System.out, minColumns);
+         XLSX2CSV xlsx2csv = new XLSX2CSV(p, divStr, minColumns);
          //输出文件地址
-         String outputFile = "D:\\test.csv";
+         String outputFile = args[1];
          xlsx2csv.process(outputFile);
-         System.out.print("output success! file:"+outputFile);
+         System.out.print("{\"code\":\"0\", \"file\":\""+outputFile+"\"}");
      }catch (Exception e) {
-     	System.out.print("output fail!");
+     	System.out.print("{\"code\":\"1\"}");
 	 }
  }
 }
